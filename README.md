@@ -18,11 +18,11 @@ We provide the model performance on several tasks to demonstrate the effect of C
 We evaluate the performance of our models across several tasks using the LM-Harness framework. The table below summarizes the results for LLaMA1-7B:
 
 | Model    | Configuration | SciQ | Winogrande | ARC-C | MMLU (5 shots) |
-| -------- | ------- | --- | --- | --- | --- |
-| LLaMA1-7B  | Original    | 93.0 | 70.0 | 41.3 | 35.1 |
-| LLaMA1-7B | P2 D0 S13 E30   | | | | |
-| LLaMA1-7B    | P2 D1 S13 E30    | | | | |
-| LLaMA1-7B    | P4 D1 S15 E30    | | | | |
+| -------- | ------------- | ---- | ---------- | ----- | -------------- |
+| LLaMA1-7B | Original     | 93.0 | 70.0 | 41.3 | 35.1 |
+| LLaMA1-7B | P2 D0 S13 E30 | | | | |
+| LLaMA1-7B | P2 D1 S13 E30 | | | | |
+| LLaMA1-7B | P4 D1 S15 E30 | | | | |
 
 ## Measuing Speedup of CQIL
 
