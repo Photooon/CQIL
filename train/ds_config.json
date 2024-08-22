@@ -1,0 +1,24 @@
+{
+    "bf16": {
+      "enabled": "auto"
+    },
+    "scheduler": {
+      "type": "WarmupDecayLR",
+      "params": {
+        "total_num_steps": "auto",
+        "warmup_min_lr": 1e-4,
+        "warmup_max_lr": "auto",
+        "warmup_num_steps": "auto"
+      }
+    },
+    "zero_optimization": {
+      "stage": 0
+    },
+    "gradient_accumulation_steps": "auto",
+    "gradient_clipping": 0.0,
+    "steps_per_print": 5,
+    "train_batch_size": "auto",
+    "train_micro_batch_size_per_gpu": "auto",
+    "wall_clock_breakdown": false
+  }
+  
