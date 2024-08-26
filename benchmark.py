@@ -24,10 +24,15 @@ class Benchmark(nn.Module):
 
     def forward(self, input_ids):
         x = self.model.model.embed_tokens(input_ids)
+
+        position_ids = torch.arange(
+            0, x.shape[1], device=x.device
+        ).unsqueeze(0)
+
         for arr in self.layer_ids:
             del_x = None
             for i, l in enumerate(arr):
-                layer_out = self.model.model.layers[l](x)[0]
+                layer_out = self.model.model.layers[l](x, position_ids=position_ids)[0]
                 layer_out = layer_out - x.to(layer_out.device)
                 if i == 0:
                     del_x = layer_out
@@ -44,7 +49,11 @@ class Benchmark(nn.Module):
 if __name__ == "__main__":
     model_path = "models/Qwen1.5-14B"
     lora_path = "lora_weights/Qwen1.5-14B-S17-E37-P2"
-    start_l, end_l, device_count = 17, 37, 2
+    start_l, end_l, device_count, bypass_dist = 17, 37, 2, 0
+
+    if bypass_dist > 0:
+        raise ValueError("benchmark.py script only support the evaluation for bypass_distance=0. "  + \
+                         "You can manually evaluate the output alignment for bypass_distance>0 by observing the output from model code in the train directory.")
 
     # Load LoRA merged models
     model = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True, torch_dtype="auto", device_map="cpu")
@@ -55,7 +64,7 @@ if __name__ == "__main__":
 
     # Wrap with Benchmark and CQIL
     base_model = Benchmark(model, start_l, end_l, device_count)
-    cqil_model = CQILWrapper(deepcopy(model), start_l, end_l, device_count)
+    cqil_model = CQILWrapper(deepcopy(model), start_l, end_l, device_count, bypass_dist)
 
     warmup = 3          # ignore information in warmup iterations
     iteration = 10
@@ -69,7 +78,7 @@ if __name__ == "__main__":
     input_ids = tokenizer(
         "接下来我要测试一段非常长的文本：",
         return_tensors="pt",
-        padding=True
+        padding=False
     )["input_ids"].cuda()
 
     with torch.no_grad():

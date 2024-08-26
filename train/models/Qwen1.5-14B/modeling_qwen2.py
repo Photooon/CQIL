@@ -1088,7 +1088,7 @@ class Qwen2Model(Qwen2PreTrainedModel):
                 for jdx in self.cqil_layers[idx]:
                     bypass_states = 0
                     for i in range(1, min(self.d, len(attn_outputs)) + 1):
-                        bypass_states += attn_outputs[-i]
+                        bypass_states += attn_outputs[-(i + 1)]
                     
                     layer_outputs = gradient_ckpt_forward(self.layers[jdx], hidden_states, bypass_states)
 

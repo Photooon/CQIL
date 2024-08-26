@@ -9,22 +9,23 @@ class SyncInWrapper(nn.Module):
         super().__init__()
         self.rank = rank
 
-    def forward(self, x):
+    def forward(self, x, *args, **kwargs):
         # print(self.rank, "[SyncIn Broadcast] Start", x)
         dist.broadcast(x, src=0)
         # print(self.rank, "[SyncIn Broadcast] Finished", x)
         return (x, )
 
 class SyncOutWrapper(nn.Module):
-    def __init__(self, rank, model):
+    def __init__(self, rank, model, bypass_dist):
         super().__init__()
         self.rank = rank
         self.model = model
+        self.bypass_dist = bypass_dist
     
-    def forward(self, x):
+    def forward(self, x, position_ids=None, *args, **kwargs):
         ops = []
         # Bypass
-        d = 0
+        d = self.bypass_dist
         world_size = 2
         if d != 0:
             for i in range(d):
@@ -40,7 +41,7 @@ class SyncOutWrapper(nn.Module):
                 req.wait()
 
         # Calculate
-        out = self.model(x)[0] - x
+        out = self.model(x, position_ids=position_ids)[0] - x
         # all_reduce output
         # print(self.rank, "[SyncOut AllReduce] Start", out)
         dist.all_reduce(out, op=dist.ReduceOp.SUM)
@@ -57,7 +58,7 @@ class JustPrint(nn.Module):
         print(self.rank, "Just Print")
         return x
 
-def worker(rank, device_count, sub_model, input_shape_queue):
+def worker(rank, device_count, sub_model, input_shape_queue, x_dtype):
     dist.init_process_group("nccl", rank=rank, world_size=device_count)
     torch.cuda.set_device(rank)
     sub_model.cuda()
@@ -66,15 +67,19 @@ def worker(rank, device_count, sub_model, input_shape_queue):
         x = input_shape_queue.get()
         if x == None:
             break
-        x = torch.empty(x, dtype=torch.bfloat16).cuda()
+        x = torch.empty(x, dtype=x_dtype).cuda()
         dist.barrier()
+
+        position_ids = torch.arange(
+            0, x.shape[1], device=x.device
+        ).unsqueeze(0)
 
         with torch.no_grad():
             for layer in sub_model:
-                x = layer(x)[0]
+                x = layer(x, position_ids=position_ids)[0]
 
 class CQILWrapper(nn.Module):
-    def __init__(self, model, start_l, end_l, device_count=2, port="29501"):
+    def __init__(self, model, start_l, end_l, device_count=2, bypass_dist=0, port="29501"):
         super().__init__()
         os.environ["MASTER_ADDR"] = "localhost"
         os.environ["MASTER_PORT"] = port
@@ -100,10 +105,10 @@ class CQILWrapper(nn.Module):
         l_ids_ranks = [[] for _ in range(device_count)]
         for i in range(start_l, end_l):
             l_ids_ranks[(i - start_l)%self.device_count].append(i)
-        self.layers_rank0 = nn.ModuleList([SyncInWrapper(0)] + [SyncOutWrapper(0, layer) for i, layer in enumerate(model.model.layers) if i in l_ids_ranks[0]])
+        self.layers_rank0 = nn.ModuleList([SyncInWrapper(0)] + [SyncOutWrapper(0, layer, bypass_dist) for i, layer in enumerate(model.model.layers) if i in l_ids_ranks[0]])
         for rank in range(1, device_count):
-            layers = nn.ModuleList([SyncInWrapper(rank)] + [SyncOutWrapper(rank, layer) for i, layer in enumerate(model.model.layers) if i in l_ids_ranks[rank]])
-            proc = mp.Process(target=worker, args=(rank, device_count, layers, self.input_shape_queue))
+            layers = nn.ModuleList([SyncInWrapper(rank)] + [SyncOutWrapper(rank, layer, bypass_dist) for i, layer in enumerate(model.model.layers) if i in l_ids_ranks[rank]])
+            proc = mp.Process(target=worker, args=(rank, device_count, layers, self.input_shape_queue, model.model.embed_tokens.weight.dtype))
             self.workers.append(proc)
             proc.start()
         
@@ -118,17 +123,22 @@ class CQILWrapper(nn.Module):
 
     def forward(self, x):
         x = self.embed_tokens(x.to(self.embed_tokens.weight.device))
+
+        position_ids = torch.arange(
+            0, x.shape[1], device=x.device
+        ).unsqueeze(0)
+
         for layer in self.layers_pre:
-            x = layer(x)[0]
+            x = layer(x, position_ids=position_ids)[0]
 
         for _ in range(1, self.device_count):
             self.input_shape_queue.put(list(x.shape))
         dist.barrier()
         for layer in self.layers_rank0:
-            x = layer(x)[0]
+            x = layer(x, position_ids=position_ids)[0]
 
         for layer in self.layers_post:
-            x = layer(x)[0]
+            x = layer(x, position_ids=position_ids)[0]
 
         x = self.norm(x)
         outputs = self.lm_head(x)
