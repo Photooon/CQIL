@@ -83,10 +83,13 @@ if __name__ == "__main__":
 
     with torch.no_grad():
         for i in range(iteration):
+            torch.cuda.synchronize()
             t1 = time.time()
             sim_out = base_model(input_ids)[0]
+            torch.cuda.synchronize()
             t2 = time.time()
             out = cqil_model(input_ids)[0]
+            torch.cuda.synchronize()
             t3 = time.time()
 
             sim_out = sim_out.cpu()
